@@ -9,6 +9,7 @@ Run:
 Test:
     pytest
 """
+import re
 import sqlite3
 import string
 from contextlib import closing
@@ -20,6 +21,8 @@ from pydantic import BaseModel
 
 DB_PATH = Path(__file__).parent / "links.db"
 ALPHABET = string.ascii_letters + string.digits
+RESERVED_ALIASES = {"shorten", "docs", "redoc", "openapi.json"}
+ALIAS_REGEX = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
 
 app = FastAPI(title="Link Shortener")
 
@@ -66,6 +69,11 @@ class ShortenRequest(BaseModel):
 def shorten(req: ShortenRequest):
     if not req.url.startswith(("http://", "https://")):
         raise HTTPException(status_code=400, detail="url must start with http:// or https://")
+    if req.alias is not None:
+        if req.alias in RESERVED_ALIASES:
+            raise HTTPException(status_code=409, detail="alias already taken")
+        if not ALIAS_REGEX.match(req.alias):
+            raise HTTPException(status_code=400, detail="invalid alias")
     with closing(get_db()) as conn:
         if req.alias:
             try:
@@ -77,9 +85,15 @@ def shorten(req: ShortenRequest):
         else:
             cur = conn.execute("INSERT INTO links (url) VALUES (?)", (req.url,))
             row_id = cur.lastrowid
-            code = encode(row_id)
-            conn.execute("UPDATE links SET code = ? WHERE id = ?", (code, row_id))
-            conn.commit()
+            k = 0
+            while True:
+                code = encode(row_id + k)
+                try:
+                    conn.execute("UPDATE links SET code = ? WHERE id = ?", (code, row_id))
+                    conn.commit()
+                    break
+                except sqlite3.IntegrityError:
+                    k += 1
     return {"code": code, "short_url": f"/{code}"}
 
 
