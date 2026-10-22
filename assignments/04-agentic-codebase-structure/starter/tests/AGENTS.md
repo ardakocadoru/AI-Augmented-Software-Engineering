@@ -16,6 +16,11 @@ These rules apply when you read, add, or change files in this folder.
   `"my-link"`, or the second run will fail with a conflict.
 - **Assert behavior, not implementation.** Check responses and redirects, not SQL,
   internal variables, or how a code was generated.
+- **One exception: collisions with generated codes.** A regression test that must make
+  an alias equal a *future* generated code may use a fresh database (pytest's
+  `monkeypatch` to point `main.DB_PATH` at `tmp_path`, then call `main.init_db()`) and
+  `main.encode()` to build that alias. Explain why in a comment; still assert only on
+  HTTP responses.
 - **Name tests after the behavior**, e.g. `test_custom_alias_conflict_returns_409`.
 - Keep the three original tests unchanged unless a task explicitly changes their
   behavior.
