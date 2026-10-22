@@ -72,7 +72,7 @@ def shorten(req: ShortenRequest):
     if req.alias is not None:
         if req.alias in RESERVED_ALIASES:
             raise HTTPException(status_code=409, detail="alias already taken")
-        if not ALIAS_REGEX.match(req.alias):
+        if not ALIAS_REGEX.fullmatch(req.alias):
             raise HTTPException(status_code=400, detail="invalid alias")
     with closing(get_db()) as conn:
         if req.alias:

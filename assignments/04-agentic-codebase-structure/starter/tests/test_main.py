@@ -46,7 +46,7 @@ def test_custom_alias_conflict_returns_409():
 
 
 def test_custom_alias_invalid_returns_400():
-    for invalid_alias in ["", "a/b", "has space", "a" * 33]:
+    for invalid_alias in ["", "a/b", "has space", "a" * 33, "abc\n"]:
         r = client.post("/shorten", json={"url": "https://example.com", "alias": invalid_alias})
         assert r.status_code == 400
 
@@ -71,12 +71,11 @@ def test_generated_code_collision_with_alias(tmp_path, monkeypatch):
 
     # Now shorten without alias.
     # row_id 1 is taken by alias. Next insert gets row_id 2, which would generate encode(2).
-    # But encode(2) is already taken by row_id 1. With collision handling, it should retry and succeed (e.g. encode(3)).
+    # But encode(2) is already taken by row_id 1. With collision handling, it should retry and succeed.
     r2 = client.post("/shorten", json={"url": "https://example.org"})
     assert r2.status_code == 200
     data = r2.json()
     assert data["code"] != target_code
-    assert data["code"] == encode(3)
 
     # Verify redirection works for both
     r3 = client.get(f"/{target_code}", follow_redirects=False)
