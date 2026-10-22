@@ -63,9 +63,9 @@ test rule before any test existed.
 
 On REVISE, the agent wrote failing tests first (3 failed), then added reserved-name
 (409) and format (400) checks and a retry loop for generated codes. The suite passed
-twice, and the re-review checked each finding before ACCEPT. Reproducing the collision
-needed one documented exception in `tests/AGENTS.md`: a `tmp_path` database plus
-`encode()`.
+twice, and the re-review checked each finding before ACCEPT.
+CodeRabbit on the PR then caught two more (`$` accepting `"abc\n"`; an over-specific
+`encode(3)` assertion), fixed in one more test-first round (`07`, `08`).
 
 ## 6. What I learned
 
@@ -75,6 +75,5 @@ Structure decides what an agent attends to.
 - Review only checks what it is pointed at. `AGENTS.md` stated the shadowing rule, yet
   the reviewer ignored it until the findings were named.
 
-Short always-on context, just-in-time rules and a written procedure made a small model
-reliable. But an agent's ACCEPT still needs a human's adversarial test before it means
-"done."
+Short context, just-in-time rules and a written procedure made a small model reliable,
+but an agent's ACCEPT still needs adversarial review before it means "done."
