@@ -19,9 +19,11 @@ Run (STDIO) — register this command in your MCP client (e.g. Gemini CLI / Clau
     python server.py
 """
 import os
+from typing import Annotated, Any
 
 import httpx
 from mcp.server.fastmcp import FastMCP
+from pydantic import Field
 
 # Overridable so the error paths can be exercised from a real MCP client (see README).
 DATA_URL = os.environ.get(
@@ -87,8 +89,55 @@ def load_countries() -> list[dict]:
         raise DataUnavailable(
             "bad_upstream_data", "The country dataset had an unexpected format."
         )
+    # Validate before caching: a malformed record would otherwise be cached and break
+    # every later call until the server restarts.
+    for index, country in enumerate(data):
+        field = malformed_field(country)
+        if field:
+            raise DataUnavailable(
+                "bad_upstream_data",
+                f"The country dataset had an unexpected format (record {index}, field '{field}').",
+            )
     _countries = data
     return _countries
+
+
+def _str_or_none(value) -> bool:
+    return value is None or isinstance(value, str)
+
+
+def _str_list_or_none(value) -> bool:
+    return value is None or (isinstance(value, list) and all(isinstance(v, str) for v in value))
+
+
+def malformed_field(country: dict) -> str | None:
+    """Return the first field the tools rely on that has the wrong shape, else None.
+
+    Optional fields may be missing or empty (Antarctica has no currencies), but a field
+    that is present must have the type the tools expect.
+    """
+    name = country.get("name")
+    if not isinstance(name, dict) or not isinstance(name.get("common"), str) or not name["common"].strip():
+        return "name"
+    if not _str_or_none(name.get("official")):
+        return "name.official"
+    for key in ("cca2", "cca3", "region", "subregion"):
+        if not _str_or_none(country.get(key)):
+            return key
+    for key in ("capital", "borders", "altSpellings"):
+        if not _str_list_or_none(country.get(key)):
+            return key
+    currencies = country.get("currencies")
+    if currencies is not None and not (
+        isinstance(currencies, dict) and all(isinstance(v, dict) for v in currencies.values())
+    ):
+        return "currencies"
+    languages = country.get("languages")
+    if languages is not None and not (
+        isinstance(languages, dict) and all(isinstance(v, str) for v in languages.values())
+    ):
+        return "languages"
+    return None
 
 
 def clean_text(value, field: str) -> tuple[str | None, dict | None]:
@@ -118,8 +167,34 @@ def searchable_names(country: dict) -> list[str]:
     return [n.lower() for n in names if n]
 
 
+# Parameters are typed as Any so that wrong-typed arguments (a number, null) still reach
+# the tool and get the structured invalid_input error instead of an MCP validation
+# error. The JSON schema the model sees still advertises the real types and limits.
+QueryParam = Annotated[
+    Any,
+    Field(
+        description=f"Country name or part of one, 1-{MAX_QUERY_LENGTH} characters.",
+        json_schema_extra={"type": "string"},
+    ),
+]
+LimitParam = Annotated[
+    Any,
+    Field(
+        description=f"Maximum number of results, 1-{MAX_LIMIT}.",
+        json_schema_extra={"type": "integer", "minimum": 1, "maximum": MAX_LIMIT},
+    ),
+]
+NameParam = Annotated[
+    Any,
+    Field(
+        description='Country name, official name, 2- or 3-letter code, or alternative spelling, e.g. "Germany", "DEU", "Turkey".',
+        json_schema_extra={"type": "string"},
+    ),
+]
+
+
 @mcp.tool()
-def search_countries(query: str, limit: int = 5) -> list[dict]:
+def search_countries(query: QueryParam, limit: LimitParam = 5) -> list[dict]:
     """Search countries by name (case-insensitive substring of the common name, official
     name, or an alternative spelling such as "Republic of Turkey").
 
@@ -189,7 +264,7 @@ def find_country(countries: list[dict], name: str) -> tuple[dict | None, dict | 
 
 
 @mcp.tool()
-def get_country_details(name: str) -> dict:
+def get_country_details(name: NameParam) -> dict:
     """Get currencies, languages, bordering countries, and the flag URL for one country.
 
     `name` can be the common or official name ("Germany", "Federal Republic of

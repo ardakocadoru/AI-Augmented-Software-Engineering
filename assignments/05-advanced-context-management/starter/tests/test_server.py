@@ -270,3 +270,76 @@ def test_mcp_calls_both_tools_and_returns_errors_as_data():
     assert [c["name"] for c in (json.loads(b.text) for b in found.content)] == ["Niger", "Nigeria"]
     assert json.loads(details.content[0].text)["cca3"] == "DEU"
     assert json.loads(missing.content[0].text)["error_type"] == "not_found"
+
+
+@pytest.mark.parametrize(
+    "tool,args",
+    [
+        ("get_country_details", {"name": 42}),
+        ("get_country_details", {"name": None}),
+        ("search_countries", {"query": 123}),
+        ("search_countries", {"query": "ger", "limit": "five"}),
+        ("search_countries", {"query": "ger", "limit": True}),
+    ],
+)
+def test_mcp_wrong_typed_arguments_return_structured_errors(tool, args):
+    async def steps(client):
+        return await client.call_tool(tool, args)
+
+    result = call_over_mcp(steps)
+    assert not result.isError
+    assert json.loads(result.content[0].text)["error_type"] == "invalid_input"
+
+
+def test_mcp_schema_still_advertises_types_and_limits():
+    async def steps(client):
+        return (await client.list_tools()).tools
+
+    tools = {t.name: t.inputSchema["properties"] for t in call_over_mcp(steps)}
+    assert tools["get_country_details"]["name"]["type"] == "string"
+    assert tools["search_countries"]["query"]["type"] == "string"
+    assert tools["search_countries"]["limit"] == {
+        **tools["search_countries"]["limit"],
+        "type": "integer", "minimum": 1, "maximum": server.MAX_LIMIT, "default": 5,
+    }
+
+
+# --- malformed records in the dataset --------------------------------------------------
+
+GERMANY = COUNTRIES[0]
+
+
+@pytest.mark.parametrize(
+    "broken",
+    [
+        {**GERMANY, "name": "Germany"},
+        {**GERMANY, "name": {"official": "Federal Republic of Germany"}},
+        {**GERMANY, "cca3": 276},
+        {**GERMANY, "capital": "Berlin"},
+        {**GERMANY, "borders": "AUT"},
+        {**GERMANY, "currencies": ["EUR"]},
+        {**GERMANY, "languages": ["German"]},
+    ],
+)
+def test_malformed_record_is_rejected_and_not_cached(monkeypatch, broken):
+    monkeypatch.setattr(server.httpx, "get", respond(body=[broken] + COUNTRIES[1:]))
+    assert server.get_country_details("Austria")["error_type"] == "bad_upstream_data"
+    assert server.search_countries("aus")[0]["error_type"] == "bad_upstream_data"
+    assert server._countries is None
+
+    monkeypatch.setattr(server.httpx, "get", respond())
+    assert server.get_country_details("Austria")["name"] == "Austria"
+
+
+def test_missing_optional_fields_are_accepted(monkeypatch):
+    minimal = [{"name": {"common": "Nowhere"}, "cca3": "NWH"}]
+    monkeypatch.setattr(server.httpx, "get", respond(body=minimal))
+    assert server.get_country_details("Nowhere") == {
+        "name": "Nowhere",
+        "official_name": "",
+        "cca3": "NWH",
+        "currencies": [],
+        "languages": [],
+        "borders": [],
+        "flag_url": "https://raw.githubusercontent.com/mledoze/countries/master/data/nwh.svg",
+    }
