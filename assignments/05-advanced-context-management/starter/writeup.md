@@ -36,16 +36,18 @@ later." The agent reported the error instead of inventing country data.
   pattern. That is why all calls in both sessions came back as normal results, not MCP
   errors. The message is for the model to read; the `error_type` lets it branch.
 - **Input:** empty, whitespace-only, over 100 characters, or a non-string → `invalid_input`.
-  `limit` must be 1–50.
+  `limit` must be 1–50. Wrong-typed arguments sent over MCP (`"name": 42`) also reach
+  this check. The parameters accept any value internally, but the schema still tells the
+  model `string` / `integer`.
 - **Upstream:** `load_countries()` turns every failure into one exception with a code:
   - a timeout (now 10 s, was 30 s) → `upstream_timeout`;
   - a non-2xx status, with the code in the message → `upstream_http_error`;
   - a network error → `upstream_unavailable`;
-  - non-JSON or a non-list body → `bad_upstream_data`.
+  - non-JSON, a non-list body, or a record with a malformed field → `bad_upstream_data`.
 
   The starter did not handle the last case: `resp.json()` raises `ValueError`, which
-  escaped the tool as an unhandled exception. Failed fetches are not cached, so the next
-  call retries.
+  escaped the tool as an unhandled exception. Records are validated *before* caching, and
+  failed fetches are not cached, so the next call retries.
 - **No result vs. too many:** `search_countries` returns `[]` for no match, as the example
   does. `get_country_details` must pick one country, so it returns `not_found` (pointing
   at `search_countries`) or `ambiguous` with at most 10 `candidates` plus `match_count`.
@@ -58,9 +60,13 @@ later." The agent reported the error instead of inventing country data.
   `FLAG_URL.format(cca3=...)`. `cca3` is upper case (`DEU`), but the files are named in
   lower case, so `…/data/DEU.svg` returns **404** and `…/data/deu.svg` returns 200. I
   lower-case the code.
+- **Review:** CodeRabbit's automatic review on the PR found two real gaps, and I
+  reproduced both before fixing them:
+  - wrong-typed MCP arguments got a raw validation error instead of `invalid_input`;
+  - a malformed record raised `AttributeError` and stayed cached until a restart.
 - **Verification:**
-  - 43 offline tests cover every error type, the return shapes, and the MCP protocol
-    (`list_tools`, `call_tool`) through an in-memory session.
+  - 57 offline tests cover every error type, malformed records, the return shapes, and
+    the MCP protocol (schema, calls, wrong-typed arguments) through an in-memory session.
   - A manual run with the official MCP STDIO client checked the real server against the
     live dataset.
 

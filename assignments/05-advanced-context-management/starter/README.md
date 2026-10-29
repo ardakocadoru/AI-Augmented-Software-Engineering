@@ -78,6 +78,12 @@ Both tools always return data and never raise. Errors come back as
 `{"error": "<human-readable message>", "error_type": "<stable code>"}`. For
 `search_countries` the error object is the single item of the returned list.
 
+Arguments of the wrong type (`"name": 42`, `"limit": "five"`) also reach the tool and get
+`invalid_input`. The parameters accept any JSON value internally, while the schema the
+model sees still says `string` / `integer` with its limits. The one exception is a call
+that omits a required argument (`name` or `query`): the MCP layer rejects it against the
+schema before the tool runs.
+
 ### `search_countries(query, limit=5)`
 
 Find countries whose common name, official name, or an alternative spelling contains
@@ -156,13 +162,13 @@ get_country_details(name="Korea")
 
 | `error_type` | When | Tools |
 |--------------|------|-------|
-| `invalid_input` | Empty or whitespace-only text, text over 100 characters, `limit` outside 1–50 | both |
+| `invalid_input` | Empty or whitespace-only text, text over 100 characters, a non-string name or query, `limit` that is not an integer from 1–50 | both |
 | `not_found` | No country matches `name` | `get_country_details` |
 | `ambiguous` | Several countries match; adds `candidates` (max 10) and `match_count` | `get_country_details` |
 | `upstream_timeout` | The dataset did not answer within 10 seconds | both |
 | `upstream_http_error` | The dataset answered with a non-2xx status (message includes the code) | both |
 | `upstream_unavailable` | Network failure (DNS, connection refused, …) | both |
-| `bad_upstream_data` | The response was not JSON, or not a list of country objects | both |
+| `bad_upstream_data` | The response was not JSON, not a list of country objects, or a record has a malformed field (the message names the record and field). Nothing is cached, so the next call retries. | both |
 
 ## Test
 
@@ -170,11 +176,12 @@ get_country_details(name="Korea")
 pytest -q
 ```
 
-43 offline tests. `httpx.get` is replaced, so no network is needed. They cover:
+57 offline tests. `httpx.get` is replaced, so no network is needed. They cover:
 - the return shapes and name matching;
-- every error type above;
-- that a failed download is not cached;
-- the real MCP protocol (`list_tools`, `call_tool`) through an in-memory client session.
+- every error type above, including malformed records;
+- that a failed or malformed download is not cached;
+- the real MCP protocol through an in-memory client session: the advertised schema,
+  successful calls, and wrong-typed arguments.
 
 To try the error path with a real client, point the server at a missing file:
 
