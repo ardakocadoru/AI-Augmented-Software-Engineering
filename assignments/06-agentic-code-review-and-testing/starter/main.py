@@ -12,6 +12,7 @@ Test:
 
 import datetime
 import sqlite3
+import unicodedata
 from contextlib import closing
 from pathlib import Path
 
@@ -54,9 +55,9 @@ class HabitIn(BaseModel):
     @classmethod
     def name_not_blank(cls, value: str) -> str:
         value = value.strip()
-        # strip() keeps invisible characters such as U+200B and NUL, so check for one
-        # character a person can actually see.
-        if not any(ch.isprintable() and not ch.isspace() for ch in value):
+        # strip() keeps invisible characters (U+200B, NUL, combining marks on their own),
+        # so require a letter, number, punctuation mark, or symbol.
+        if not any(unicodedata.category(ch)[0] in "LNPS" for ch in value):
             raise ValueError("name must not be empty")
         return value
 
