@@ -32,7 +32,7 @@ def error_messages(response):
     return " ".join(error["msg"] for error in response.json()["detail"])
 
 
-@pytest.mark.parametrize("name", ["", "   ", "\t\n"])
+@pytest.mark.parametrize("name", ["", "   ", "\t\n", "\u00a0", "\u200b", "\x00"])
 def test_blank_habit_name_is_rejected(name):
     r = client.post("/habits", json={"name": name})
     assert r.status_code == 422

@@ -54,7 +54,9 @@ class HabitIn(BaseModel):
     @classmethod
     def name_not_blank(cls, value: str) -> str:
         value = value.strip()
-        if not value:
+        # strip() keeps invisible characters such as U+200B and NUL, so check for one
+        # character a person can actually see.
+        if not any(ch.isprintable() and not ch.isspace() for ch in value):
             raise ValueError("name must not be empty")
         return value
 
