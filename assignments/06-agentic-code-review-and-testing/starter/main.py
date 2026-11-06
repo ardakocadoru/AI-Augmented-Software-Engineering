@@ -10,6 +10,7 @@ Test:
     pytest
 """
 
+import datetime
 import sqlite3
 from contextlib import closing
 from pathlib import Path
@@ -87,3 +88,29 @@ def list_checkins(habit_id: int):
             "SELECT day FROM checkins WHERE habit_id = ? ORDER BY day", (habit_id,)
         ).fetchall()
     return [r["day"] for r in rows]
+
+
+@app.get("/habits/{habit_id}/streak")
+def get_habit_streak(habit_id: int):
+    with closing(get_db()) as conn:
+        habit = conn.execute("SELECT id FROM habits WHERE id = ?", (habit_id,)).fetchone()
+        if habit is None:
+            raise HTTPException(status_code=404, detail="unknown habit")
+        rows = conn.execute("SELECT day FROM checkins WHERE habit_id = ?", (habit_id,)).fetchall()
+
+    checkin_dates = {datetime.date.fromisoformat(r["day"]) for r in rows}
+    today = datetime.date.today()
+
+    if today in checkin_dates:
+        d = today
+    elif today - datetime.timedelta(days=1) in checkin_dates:
+        d = today - datetime.timedelta(days=1)
+    else:
+        return {"streak": 0}
+
+    streak = 0
+    while d in checkin_dates:
+        streak += 1
+        d -= datetime.timedelta(days=1)
+
+    return {"streak": streak}
