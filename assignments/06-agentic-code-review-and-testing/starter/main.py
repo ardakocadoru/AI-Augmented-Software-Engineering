@@ -90,6 +90,20 @@ def list_checkins(habit_id: int):
     return [r["day"] for r in rows]
 
 
+def parse_days(values: list[str]) -> set[datetime.date]:
+    """Parse stored check-in days, skipping values that are not ISO dates.
+
+    Older rows may hold malformed text; one bad row must not break the whole habit.
+    """
+    days = set()
+    for value in values:
+        try:
+            days.add(datetime.date.fromisoformat(value))
+        except ValueError:
+            continue
+    return days
+
+
 @app.get("/habits/{habit_id}/streak")
 def get_habit_streak(habit_id: int):
     with closing(get_db()) as conn:
@@ -98,19 +112,10 @@ def get_habit_streak(habit_id: int):
             raise HTTPException(status_code=404, detail="unknown habit")
         rows = conn.execute("SELECT day FROM checkins WHERE habit_id = ?", (habit_id,)).fetchall()
 
-    checkin_dates = {datetime.date.fromisoformat(r["day"]) for r in rows}
-    today = datetime.date.today()
-
-    if today in checkin_dates:
-        d = today
-    elif today - datetime.timedelta(days=1) in checkin_dates:
-        d = today - datetime.timedelta(days=1)
-    else:
-        return {"streak": 0}
-
+    checkin_days = parse_days([r["day"] for r in rows])
+    day = datetime.date.today()
     streak = 0
-    while d in checkin_dates:
+    while day in checkin_days:
         streak += 1
-        d -= datetime.timedelta(days=1)
-
+        day -= datetime.timedelta(days=1)
     return {"streak": streak}
